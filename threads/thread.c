@@ -28,6 +28,11 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* List of blocked threads. when timer_sleep() called, the thread(currently running)
+   is pushed to the tail of this list. when wakeup() called, head of
+   this list will be popped and be pushed to ready_list. */
+static struct list sleep_list; 
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -108,12 +113,16 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list);
 	list_init (&destruction_req);
-
+	
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
 	initial_thread->status = THREAD_RUNNING;
+	/* initialize the sleep queue date structure */
+	initial_thread->wakeup_tick = 0; // ? 
+
 	initial_thread->tid = allocate_tid ();
 }
 
@@ -204,9 +213,15 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
-	/* Add to run queue. */
-	thread_unblock (t);
 
+	/* Add to run queue. */
+	thread_unblock (t); // sorted by priority
+	// if newly created thread priority is bigger than current thread, yield.
+	
+	if (thread_get_priority() < priority)
+	{
+		thread_yield();
+	}
 	return tid;
 }
 
@@ -299,13 +314,13 @@ thread_yield (void) {
 	struct thread *curr = thread_current ();
 	enum intr_level old_level;
 
-	ASSERT (!intr_context ());
+	ASSERT (!intr_context ()); 
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
 		list_push_back (&ready_list, &curr->elem);
 	do_schedule (THREAD_READY);
-	intr_set_level (old_level);
+	intr_set_level (old_level); // set a state of interrupt to the state passed to parameter and return previous interrupt state.
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
@@ -325,7 +340,7 @@ void
 thread_set_nice (int nice UNUSED) {
 	/* TODO: Your implementation goes here */
 }
-
+ 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) {
@@ -587,4 +602,40 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+
+//// implements 
+
+void thread_sleep(int64_t ticks)
+{
+	struct thread *t = thread_current ();
+	enum intr_level old_level;
+	old_level = intr_disable ();
+
+	if (t != idle_thread){ // what should i do?
+		// update the global tick
+		t->wakeup_tick = ticks;
+		list_push_back(&sleep_list,&t->elem);
+		thread_block();
+	}
+	intr_set_level (old_level);
+	/* if the current thread is not idle thread, change the state of the caller thread to BLOCKED,
+	   store the local tick to wake up, update the global tick if necessary, and call schedule()
+	   when you manipulate thread list, disable interrupt! */
+}
+
+void thread_wakeup(int64_t ticks)
+{	
+	//struct list_elem *t = sleep_list.head.next;
+	struct list_elem *t = list_begin(&sleep_list);
+	struct thread * cur_thread;
+	while (t != list_end(&sleep_list)){
+		cur_thread = list_entry (t, struct thread, elem);
+		if ( cur_thread->wakeup_tick <= ticks){
+			t = list_remove(t);
+			thread_unblock(cur_thread);
+		}
+		else t = list_next(t);
+	}
 }
