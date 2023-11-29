@@ -200,7 +200,7 @@ list_push_front (struct list *list, struct list_elem *elem) {
    back in LIST. */
 void
 list_push_back (struct list *list, struct list_elem *elem) {
-	list_insert (list_end (list), elem);
+	list_insert (list_end (list), elem); // list_insert_ordered 사용해야 할듯?
 }
 
 /* Removes ELEM from its list and returns the element that
@@ -420,7 +420,7 @@ list_insert_ordered (struct list *list, struct list_elem *elem,
 		list_less_func *less, void *aux) {
 	struct list_elem *e;
 
-	ASSERT (list != NULL);
+	ASSERT (list != NULL);	
 	ASSERT (elem != NULL);
 	ASSERT (less != NULL);
 
