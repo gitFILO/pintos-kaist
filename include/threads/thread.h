@@ -96,7 +96,7 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 	
-	struct list donations;
+	struct list donations; 
 	struct list_elem d_elem;
 	struct lock *wait_on_rock;
 	int original_priority;

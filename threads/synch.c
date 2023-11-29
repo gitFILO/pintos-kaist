@@ -89,6 +89,7 @@ sema_down (struct semaphore *sema) {
 	while (sema->value == 0) {
 		//list_push_back (&sema->waiters, &thread_current ()->elem);
 		list_insert_ordered(&sema->waiters,&thread_current() ->elem,comapare_priority,NULL);
+		
 		thread_block ();
 	}
 	sema->value--;
@@ -132,6 +133,7 @@ sema_up (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	if (!list_empty (&sema->waiters)){
+		list_sort(&sema->waiters, &comapare_priority, NULL);
 		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
 	}
 
@@ -211,10 +213,19 @@ lock_acquire (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
+	
+	if(lock->holder){
+		if(thread_get_priority() > lock->holder->priority){ 
+			//thread_current()->priority = lock->holder->priority;
+			lock->holder->priority = thread_get_priority();
+			//printf("lockholder prioirity:%d, current priority: %d\n",thread_get_priority(),lock->holder->priority);
+		}
+		else printf("not bigger..\n");
+	}
 
 	sema_down (&lock->semaphore);
-	//lock->holder = thread_current ();
 	lock->holder = thread_current();
+	
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -246,7 +257,9 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
-
+	
+	if(thread_current()->original_priority != thread_get_priority) thread_set_priority(thread_current()->original_priority);
+	
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
