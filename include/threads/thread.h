@@ -98,7 +98,7 @@ struct thread {
 	
 	struct list donations; 
 	struct list_elem d_elem;
-	struct lock *wait_on_rock;
+	struct lock *wait_on_lock;
 	int original_priority;
 
 #ifdef USERPROG

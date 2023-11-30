@@ -49,7 +49,7 @@ static struct list destruction_req;
 static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
-
+void thread_test_preemption (void);
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
@@ -71,6 +71,7 @@ bool comapare_priority(struct list_elem *element, struct list_elem *before,void 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 /* Returns the running thread.
  * Read the CPU's stack pointer `rsp', and then round that
  * down to the start of a page.  Since `struct thread' is
@@ -78,6 +79,7 @@ bool comapare_priority(struct list_elem *element, struct list_elem *before,void 
  * somewhere in the middle, this locates the curent thread. */
 #define running_thread() ((struct thread *) (pg_round_down (rrsp ())))
 
+bool compare_donation_priority (const struct list_elem *cur, const struct list_elem *before, void *aux);
 
 // Global descriptor table for the thread_start.
 // Because the gdt will be setup after the thread_init, we should
@@ -220,10 +222,7 @@ thread_create (const char *name, int priority,
 	struct list_elem *temp = list_begin(&ready_list);
 	struct thread *head_thread = list_entry (temp, struct thread, elem);
 
-	if (thread_get_priority() < head_thread->priority)
-	{	
-		thread_yield();
-	}
+	thread_test_preemption();
 	return tid;
 }
 
@@ -333,22 +332,52 @@ thread_yield (void) {
 	if (curr != idle_thread)
 		list_insert_ordered(&ready_list,&curr->elem,comapare_priority,NULL);
 		//list_push_back (&ready_list, &curr->elem);
+	
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level); // set a state of interrupt to the state passed to parameter and return previous interrupt state.
 }
-
 /* Sets the current thread's priority to NEW_PRIORITY. */
+void thread_test_preemption (void){
+   if (thread_current ()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority){
+		thread_yield ();
+	}
+}
+
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->original_priority = new_priority;
-	thread_current()->priority = thread_current()->original_priority;
-	
+	struct thread *cur = thread_current ();
+	cur->original_priority = new_priority;
+	cur->priority = cur->original_priority;
+
+	if (!list_empty (&cur->donations)) {
+		list_sort (&cur->donations, compare_donation_priority,NULL);
+
+		/* 그중 가장 높은  priority를 현재 thread의 priority로 설정 */
+    	struct thread *front = list_entry (list_front (&cur->donations), struct thread, d_elem);
+		if (front->priority > cur->priority)
+			cur->priority = front->priority;
+    }
+	// if (thread_current()->wait_on_lock){ // 내가 donation한 스레드가 존재한다면, 
+	// 	struct thread *donated_thread = thread_current()->wait_on_lock->holder;
+	// 	struct thread * max_thread = list_entry(list_max(&thread_current()->donations,compare_donation_priority,NULL),struct thread, d_elem);
+	// 	donated_thread->priority = max_thread->priority;
+	// }
+
 	struct list_elem *t = list_begin(&ready_list);
 	struct thread * cur_thread;
 	cur_thread = list_entry (t, struct thread, elem);
-	if(cur_thread->priority > new_priority){
-		thread_yield(); //preemptive!
-	}
+	// if(cur_thread->priority > new_priority){
+	// 	//list_sort(ready_list)
+	// 	thread_yield(); //preemptive!
+	// }
+	// thread_test_preemption();
+	
+	if (!list_empty (&ready_list)) {
+		struct thread *next = list_entry(list_begin(&ready_list), struct thread, elem);
+		if (next != NULL && next->priority > new_priority) {
+			thread_yield();
+		}
+  	}
 }
 
 /* Returns the current thread's priority. */
@@ -446,7 +475,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->original_priority = priority;
-	t->wait_on_rock= NULL;
+	t->wait_on_lock= NULL;
 	list_init(&t->donations);
 	t->magic = THREAD_MAGIC;
 }
