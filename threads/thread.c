@@ -26,15 +26,11 @@
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_list;
 
 /* List of blocked threads. when timer_sleep() called, the thread(currently running)
    is pushed to the tail of this list. when wakeup() called, head of
-   this list will be popped and be pushed to ready_list. */
-static struct list sleep_list; 
-
+   this list will be popped and be pushed to ready_list. *
 /* Idle thread. */
-static struct thread *idle_thread;
 
 /* Initial thread, the thread running init.c:main(). */
 static struct thread *initial_thread;
@@ -68,6 +64,15 @@ static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
 bool comapare_priority(struct list_elem *element, struct list_elem *before,void * aux);
+
+struct list ready_list;
+struct list sleep_list; 
+
+int READY_THREADS;
+int LOAD_AVG;
+
+/* defined in thread.h */
+
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -80,7 +85,7 @@ bool comapare_priority(struct list_elem *element, struct list_elem *before,void 
 #define running_thread() ((struct thread *) (pg_round_down (rrsp ())))
 
 bool compare_donation_priority (const struct list_elem *cur, const struct list_elem *before, void *aux);
-
+extern bool thread_mlfqs;
 // Global descriptor table for the thread_start.
 // Because the gdt will be setup after the thread_init, we should
 // setup temporal gdt first.
@@ -117,7 +122,9 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init (&sleep_list);
 	list_init (&destruction_req);
-	
+	READY_THREADS = 0;
+	LOAD_AVG = 0;
+
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -336,7 +343,7 @@ thread_yield (void) {
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level); // set a state of interrupt to the state passed to parameter and return previous interrupt state.
 }
-/* Sets the current thread's priority to NEW_PRIORITY. */
+
 void thread_test_preemption (void){
    if (thread_current ()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority){
 		thread_yield ();
@@ -349,14 +356,15 @@ thread_set_priority (int new_priority) {
 	cur->original_priority = new_priority;
 	cur->priority = cur->original_priority;
 
+	if(!thread_mlfqs){ // mlfqs 테스트가 아니어야만 도네이션 적용
 	if (!list_empty (&cur->donations)) {
 		list_sort (&cur->donations, compare_donation_priority,NULL);
 
-		/* 그중 가장 높은  priority를 현재 thread의 priority로 설정 */
     	struct thread *front = list_entry (list_front (&cur->donations), struct thread, d_elem);
 		if (front->priority > cur->priority)
 			cur->priority = front->priority;
-    }
+    } 
+	}
 	// if (thread_current()->wait_on_lock){ // 내가 donation한 스레드가 존재한다면, 
 	// 	struct thread *donated_thread = thread_current()->wait_on_lock->holder;
 	// 	struct thread * max_thread = list_entry(list_max(&thread_current()->donations,compare_donation_priority,NULL),struct thread, d_elem);
@@ -369,7 +377,7 @@ thread_set_priority (int new_priority) {
 	// if(cur_thread->priority > new_priority){
 	// 	//list_sort(ready_list)
 	// 	thread_yield(); //preemptive!
-	// }
+	// } 
 	// thread_test_preemption();
 	
 	if (!list_empty (&ready_list)) {
@@ -390,27 +398,28 @@ thread_get_priority (void) {
 void
 thread_set_nice (int nice UNUSED) {
 	/* TODO: Your implementation goes here */
+	thread_current()->nice = nice;
 }
  
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
-int
+int  
 thread_get_load_avg (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	return convert_x_to_int_round_to_nearest(mul_x_by_n(LOAD_AVG,100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	return convert_x_to_int_round_to_nearest(mul_x_by_n(thread_current()->recent_cpu,100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -478,6 +487,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->wait_on_lock= NULL;
 	list_init(&t->donations);
 	t->magic = THREAD_MAGIC;
+	t->nice = 0;
+	t->recent_cpu = 0;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -607,10 +618,21 @@ do_schedule(int status) {
 	schedule ();
 }
 
+struct thread*
+next_thread_to_run_mlfqs(void){
+	if (list_empty (&ready_list))
+		return idle_thread;
+	else{
+		list_sort(&ready_list,comapare_priority,NULL);
+		return list_entry (list_pop_front (&ready_list), struct thread, elem);
+	}
+}
+
 static void
 schedule (void) {
 	struct thread *curr = running_thread ();
-	struct thread *next = next_thread_to_run ();
+	//struct thread *next = next_thread_to_run (); // mlfq에서는 다른 스케줄링 방식을 사용해야함!
+	struct thread *next = next_thread_to_run_mlfqs();
 
 	ASSERT (intr_get_level () == INTR_OFF);
 	ASSERT (curr->status != THREAD_RUNNING);

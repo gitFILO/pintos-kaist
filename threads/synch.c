@@ -98,7 +98,6 @@ sema_down (struct semaphore *sema) {
 	sema->value--;
 	intr_set_level (old_level);
 }
-
 /* Down or "P" operation on a semaphore, but only if the
    semaphore is not already 0.  Returns true if the semaphore is
    decremented, false otherwise.
@@ -222,8 +221,8 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 	struct thread *cur = thread_current();
-
-	if(lock->holder){
+	if(!thread_mlfqs){
+	if(lock->holder){ 
 		// if(lock->holder->priority > cur->priority){ // lock->holder와 현재 스레드간의 priority 비교는 필수인지
 		// }
 		cur->wait_on_lock = lock;
@@ -241,7 +240,7 @@ lock_acquire (struct lock *lock) {
 			start = holder;
 		}
 	}
-
+	}
 	sema_down (&lock->semaphore);
 	lock->holder = cur;
 	cur->wait_on_lock = NULL;
@@ -278,6 +277,8 @@ lock_release (struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 	
 	//if(thread_current()->original_priority != thread_get_priority) thread_set_priority(thread_current()->original_priority);
+	
+	if(!thread_mlfqs){
 	struct list_elem *e;
 	thread_current()->priority = thread_current()->original_priority;
 	
@@ -290,9 +291,6 @@ lock_release (struct lock *lock) {
 		if (temp->wait_on_lock == lock)
 			list_remove (&temp->d_elem);
 	}
-
-	
-
     struct thread *cur = thread_current ();
 	cur->priority = cur->original_priority;
 
@@ -301,7 +299,7 @@ lock_release (struct lock *lock) {
 		struct thread* max_thread = list_entry(list_max(&cur->donations,compare_donation_priority,NULL),struct thread,d_elem);
 		cur->priority = MAX(cur->priority,max_thread->priority);
 	}
-
+	}
 
 	// if (!list_empty (&cur->donations)) {
 	// 	list_sort (&cur->donations, compare_donation_priority,NULL);

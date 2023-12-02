@@ -8,6 +8,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 
+
 /* See [8254] for hardware details of the 8254 timer chip. */
 
 #if TIMER_FREQ < 19
@@ -30,6 +31,14 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 void thread_sleep(int64_t ticks);
 void thread_wakeup(int64_t ticks);
+
+struct list ready_list;
+
+struct list ready_list;
+struct list sleep_list; 
+
+int READY_THREADS;
+int LOAD_AVG;
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -125,6 +134,44 @@ timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
+void
+update_recent_cpu(void){
+	struct list_elem *e;
+	struct thread *thrd;
+	int decay_factor = div_x_by_y(mul_x_by_n(LOAD_AVG,2),add_x_and_n(mul_x_by_n(LOAD_AVG,2), 1));
+	// RUNNING THREAD도 업데이트 해야함
+	thread_current()->recent_cpu = add_x_and_n(mul_x_by_y(decay_factor,thread_current()->recent_cpu),thread_current()->nice);
+
+	for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e)){
+		thrd = list_entry(e,struct thread,elem);
+		thrd->recent_cpu = add_x_and_n(mul_x_by_y(decay_factor,thrd->recent_cpu),thrd->nice);
+	}
+	for (e=list_begin(&sleep_list); e != list_end(&sleep_list); e = list_next(e)){
+		thrd = list_entry(e,struct thread,elem);
+		thrd->recent_cpu = add_x_and_n(mul_x_by_y(decay_factor,thrd->recent_cpu),thrd->nice);
+	}
+}
+
+
+void
+recompute_priority(void){
+	struct list_elem *e;
+	struct thread *thrd;
+	thread_current()->priority = convert_x_to_int_round_to_nearest(sub_n_from_x(sub_y_from_x(convert_n_to_fp(PRI_MAX),(div_x_by_n(thread_current()->recent_cpu,4))),(2 * thread_current()->nice)));
+	for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e)){
+		thrd = list_entry(e,struct thread,elem);
+		thrd->priority = convert_x_to_int_round_to_nearest(sub_n_from_x(sub_y_from_x(convert_n_to_fp(PRI_MAX),(div_x_by_n(thrd->recent_cpu,4))),(2 * thrd->nice)));
+		if (PRI_MAX < thrd->priority) thrd->priority = PRI_MAX;
+		else if (PRI_MIN > thrd->priority) thrd->priority = PRI_MIN;
+	}
+	for (e=list_begin(&sleep_list); e != list_end(&sleep_list); e = list_next(e)){
+		thrd = list_entry(e,struct thread,elem);
+		// recent_cpu를 fp로 바꿀까?
+		thrd->priority = convert_x_to_int_round_to_nearest(sub_n_from_x(sub_y_from_x(convert_n_to_fp(PRI_MAX),(div_x_by_n(thrd->recent_cpu,4))),(2 * thrd->nice)));
+		if (PRI_MAX < thrd->priority) thrd->priority = PRI_MAX;
+		else if (PRI_MIN > thrd->priority) thrd->priority = PRI_MIN;
+	}
+}
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
@@ -136,8 +183,31 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	   move them to the ready list if necessary.
 	   update the global tick.
 	*/
+	if(thread_mlfqs){
+	enum intr_level old_level = intr_disable ();
+	thread_current()->recent_cpu += 16384; // for every tick 
 
+	if( timer_ticks() % TIMER_FREQ == 0 ) { // 1초 마다
+		// update everty thread's recent_cpu  
+	
+	
+		int decayed_load_avg = div_x_by_n(mul_x_by_n(LOAD_AVG,59),60);
+		READY_THREADS = list_size(&ready_list);
+		if(thread_current() != idle_thread)  // idle이 아니라면, +1 , 맞으면 그냥 
+			READY_THREADS += 1;
 
+		int fp_ready_thread = convert_n_to_fp(READY_THREADS);
+		int decayed_ready_threads = div_x_by_n(fp_ready_thread,60);
+		LOAD_AVG = add_x_and_y(decayed_load_avg,decayed_ready_threads); // update load average in every sec
+
+		update_recent_cpu();
+	}
+	if ( timer_ticks() % 4 == 0){ // 4틱 마다
+		recompute_priority();
+		// recompute the priority of all threads
+	}
+	intr_set_level (old_level);
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
