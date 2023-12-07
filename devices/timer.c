@@ -185,7 +185,7 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	*/
 	if(thread_mlfqs){
 	enum intr_level old_level = intr_disable ();
-	thread_current()->recent_cpu += 16384; // for every tick 
+	if(thread_current != idle_thread) thread_current()->recent_cpu += 16384; // for every tick 
 
 	if( timer_ticks() % TIMER_FREQ == 0 ) { // 1초 마다
 		// update everty thread's recent_cpu  

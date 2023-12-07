@@ -45,7 +45,6 @@ static struct list destruction_req;
 static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
-void thread_test_preemption (void);
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
@@ -322,6 +321,9 @@ thread_exit (void) {
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
+	// 추가해야 하는 것 아래에 있음!
+	//list_remove(&thread_current() -> allelem);
+	//thread_current()->status = THREAD_DYING;
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();
 }
@@ -345,7 +347,7 @@ thread_yield (void) {
 }
 
 void thread_test_preemption (void){
-   if (thread_current ()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority){
+   if (!list_empty(&ready_list) && !intr_context() && thread_current ()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority){
 		thread_yield ();
 	}
 }
@@ -659,7 +661,7 @@ schedule (void) {
 		if (curr && curr->status == THREAD_DYING && curr != initial_thread) {
 			ASSERT (curr != next);
 			//list_push_back (&destruction_req, &curr->elem);
-			list_insert_ordered(&destruction_req,&curr->elem,comapare_priority,NULL);
+			list_push_back (&destruction_req, &curr->elem);
 		}
 
 		/* Before switching the thread, we first save the information

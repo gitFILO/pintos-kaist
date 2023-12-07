@@ -25,8 +25,8 @@ struct gp_registers {
 	uint64_t r10;
 	uint64_t r9;
 	uint64_t r8;
-	uint64_t rsi;
-	uint64_t rdi;
+	uint64_t rsi; // 1
+	uint64_t rdi; // 2
 	uint64_t rbp;
 	uint64_t rdx;
 	uint64_t rcx;

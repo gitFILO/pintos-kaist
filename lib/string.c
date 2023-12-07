@@ -231,7 +231,7 @@ strtok_r (char *s, const char *delimiters, char **save_ptr) {
 	/* Skip any DELIMITERS at our current position. */
 	while (strchr (delimiters, *s) != NULL) {
 		/* strchr() will always return nonnull if we're searching
-		   for a null byte, because every string contains a null
+		   for a null byte, because	 every string contains a null
 		   byte (at the end). */
 		if (*s == '\0') {
 			*save_ptr = s;

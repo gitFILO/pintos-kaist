@@ -27,6 +27,7 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+void hex_dump (uintptr_t ofs, const void *buf_, size_t size, bool ascii);
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -160,27 +161,94 @@ error:
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
+void
+argument_stack(char **argv,int cnt,struct intr_frame* _if){
+	int i = 0;
+	// 1. argv 값 뒤에서부터 푸쉬
+	// 2. padding
+	// 3. sentinel
+	// 4. argv[cnt] ... argv[0] 주소 뒤에서부터 푸쉬
+	// 5. argv = argv[0] 주소를 저장한 곳의 주소 푸쉬
+	// 6. argc 푸쉬
+	// 7. return address(fake address) : 0 푸쉬
+	char *argv_addr[128];
+	for(int i = cnt - 1;i >= 0;i--){
+		//memcpy (void *dst_, const void *src_, size_t size)
+		_if->rsp -= strlen(argv[i]) + 1;
+		argv_addr[cnt] = (char *)_if->rsp;
+		memcpy(_if->rsp, argv[i],strlen(argv[i]) + 1); // 마지막 널문자
+	}
+	
+	while((_if->rsp % 8)){ // 패딩 -> 8 단위
+		_if->rsp -= 1;
+		memset(_if->rsp,0,1);
+	}
+	// memset
+
+	_if->rsp -= 8;
+	memset(_if->rsp,0,8); // sentinel
+
+	for(int i = cnt -1;i>=0;i--){
+		_if->rsp -= 8;
+		memcpy(_if->rsp,&argv_addr[i],8); // why &?
+	}
+
+	// _if->rsp -= 8;
+	// memcpy(_if->rsp,argv,8);
+	_if->R.rsi = _if->rsp; // 공부 
+	
+	// _if->rsp -= 4;
+	// memcpy(_if->rsp,cnt,4);
+	_if->R.rdi = cnt;
+	
+	// fake address
+	_if->rsp -= 8;
+	memset(_if->rsp,0,8);
+}
+
 int
 process_exec (void *f_name) {
-	char *file_name = f_name;
-	bool success;
+	/* f_name 파싱 -> 인자로 넘겨줘야 함.. */
+	char *save_ptr;
+	char *token = strtok_r(f_name, " ", &save_ptr); // token = 'echo' 
+	char *argv[128];
 
+	int cnt = 0; 
+	while (token != NULL) {
+		argv[cnt] = token;
+		token = strtok_r(NULL, " ", &save_ptr); // token = 'x'
+		cnt++;
+	}
+	//printf("\n\n%s\n\n",argv[0]);
+
+	int argc = cnt; // 인자의 개수
+
+	//char *file_name = f_name;
+
+	bool success;
+	
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
 	struct intr_frame _if;
-	_if.ds = _if.es = _if.ss = SEL_UDSEG;
+	_if.ds = _if.es = _if.ss = SEL_UDSEG; 
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
-
+	
 	/* We first kill the current context */
 	process_cleanup ();
-
 	/* And then load the binary */
-	success = load (file_name, &_if);
 
+
+	success = load (argv[0], &_if); 
+	// hex_dump(); // ?
+	
+	argument_stack(argv,cnt,&_if); 
+	hex_dump(_if.rsp, _if.rsp,(USER_STACK - _if.rsp), true);
+
+	
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
+	palloc_free_page (argv[0]); 
 	if (!success)
 		return -1;
 
@@ -204,6 +272,10 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	int cnt = 99999900;
+	while(cnt){
+		cnt--;
+	}
 	return -1;
 }
 

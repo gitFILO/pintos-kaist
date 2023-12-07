@@ -171,7 +171,7 @@ void do_iret (struct intr_frame *tf);
 
 struct list ready_list;
 struct list sleep_list; 
-
+void thread_test_preemption (void);
 struct thread *idle_thread;
 int READY_THREADS;
 int LOAD_AVG;
