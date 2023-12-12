@@ -19,6 +19,8 @@
 #include "threads/vaddr.h"
 #include "threads/synch.h"
 #include "intrinsic.h"
+#include "userprog/syscall.h"
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -80,7 +82,7 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_) {
 	/* Clone current thread to new thread.*/
-	memcpy(&thread_current()->parent_if,if_,sizeof(struct intr_frame));
+	memcpy(&thread_current()->parent_if,if_,sizeof(struct intr_frame)); // 이 코드~!
 	return thread_create (name,PRI_DEFAULT, __do_fork, thread_current ());
 }
 
@@ -100,7 +102,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 		// newpage = palloc_get_page(PAL_USER);
 		// parent_page = pml4_get_page (parent->pml4, va);
 		// memcpy(newpage, parent_page, PGSIZE);
-		return true;
+		return true; 
 	}	
 	va = pg_round_down(va);
 	//if(!is_user_vaddr(va)) return true;
@@ -142,12 +144,10 @@ __do_fork (void *aux) {
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
 	struct intr_frame *parent_if;
 	bool succ = true;
-	
 	parent_if = &parent->parent_if;
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_,parent_if, sizeof (struct intr_frame)); // tf 
 	// memcpy(&current->tf,parent_if,sizeof(struct intr_frame));
-	
 	// current->tf = if_; //쨘
 	
 	// current->tf.R.rax = 0;
@@ -177,14 +177,13 @@ __do_fork (void *aux) {
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
-	for( int i = 3; i <= 63; i ++){
+	for( int i = 3; i <= 63; i ++){ 
 		if(parent->fdt[i] != NULL){
 			struct file *dup_file = file_duplicate(parent->fdt[i]);
 			current->fdt[i] = dup_file;
 		}
 	}
 
-	
 	// 모든 fdt를 전부 복사해야 할듯?
 	process_init ();
 
@@ -192,12 +191,11 @@ __do_fork (void *aux) {
 	if (succ){
 		sema_up(&current->fork_sema);
 		if_.R.rax = 0; // 자식은 0 이어야 함 
-		do_iret (&if_);
+		do_iret (&if_); // t
 	}
 error:
-	printf("\nerror! \n\n");
 	sema_up(&current->fork_sema);
-	thread_exit ();
+	sys_exit(-1);
 }
 
 /* Switch the current execution context to the f_name.
@@ -251,19 +249,20 @@ argument_stack(char **argv,int cnt,struct intr_frame* _if){
 int
 process_exec (void *f_name) {
 	/* f_name 파싱 -> 인자로 넘겨줘야 함.. */
-	char *save_ptr;
-	char *token = strtok_r(f_name, " ", &save_ptr); // token = 'echo' 
-	char *argv[128];
+	
+	// char *save_ptr;
+	// // char *token = strtok_r(f_name, " ", &save_ptr); // token = 'echo' 
+	// char *argv[128];
 
-	int cnt = 0; 
-	while (token != NULL) {
-		argv[cnt] = token;
-		token = strtok_r(NULL, " ", &save_ptr); // token = 'x'
-		cnt++;
-	}
+	// int cnt = 0; 
+	// while (token != NULL) {
+	// 	argv[cnt] = token;
+	// 	token = strtok_r(NULL, " ", &save_ptr); // token = 'x'
+	// 	cnt++;
+	// }
 	//printf("\n\n%s\n\n",argv[0]);
 
-	int argc = cnt; // 인자의 개수
+	// int argc = cnt; // 인자의 개수
 
 	//char *file_name = f_name;
 
@@ -279,22 +278,19 @@ process_exec (void *f_name) {
 	
 	/* We first kill the current context */
 	process_cleanup ();
+	char *file_name = f_name;
+	success = load (file_name, &_if);
+
 	/* And then load the binary */
-
-
-	success = load (argv[0], &_if); 
+	
 	// hex_dump(); // ?
-
-	argument_stack(argv,cnt,&_if); 
 	//hex_dump(_if.rsp, _if.rsp,(USER_STACK - _if.rsp), true);
 
 	//strlcpy(thread_current()->p_name,argv[0],sizeof(thread_current()->p_name) + 1);
 	// printf("cur thread process name : %s\n",thread_current()->p_name);
 	// printf("argv[0] = %s\n\n",argv[0]);
 	/* If load failed, quit. */
-	
-	
-	palloc_free_page (argv[0]); 
+	palloc_free_page (file_name); 
 	if (!success)
 		return -1;
 
@@ -367,8 +363,7 @@ process_wait (tid_t child_tid UNUSED) {
 	//list_push_back(&wait_list, &cur->elem); // 스케줄링 불능상태
 	
 
-	// // 내가 기다리는 자식 프로세스가 종료되면서 나를 다시 ready_list에 넘겨주고 난 뒤에 실행되는 코드
-	return cur->child_exit_status;
+	return cur->child_exit_status; 
 	
 	//return thread_current()->exit_status;// child의 exit_status를 리턴하도록 하기 
 }
@@ -502,6 +497,17 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+	/*let's parsing*/
+	static char *argv[LOADER_ARGS_LEN / 2 + 1];
+	char *token, *save_ptr;
+	int argc = 0;
+
+	//char *strtok_r(char *s, const char *delimiters, char **saveptr);
+	for (token = strtok_r (file_name, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)){
+		argv[argc] = token;
+		argc++;
+	}
+
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
@@ -514,6 +520,9 @@ load (const char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
+
+	//t->running_file = file;
+	//file_deny_write(file);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -587,8 +596,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
-	/* TODO: Your code goes here.
-	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	//void argument_stack(char **parse ,int count ,struct intr_frame *if) struct intr_frame로 변경
+	argument_stack(argv, argc, if_);
 
 	success = true;
 

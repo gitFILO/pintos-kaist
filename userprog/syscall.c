@@ -93,7 +93,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			f->R.rax = sys_fork(f->R.rdi, f); // not yet
 			break;
 		case SYS_EXEC:
-			sys_exec(f->R.rdi); // not yet
+			f->R.rax = sys_exec(f->R.rdi); // not yet
 			break;
 		case SYS_WAIT:
 			f->R.rax = sys_wait(f->R.rdi);
@@ -138,6 +138,9 @@ void
 sys_exit(int status){
 	thread_current()->exit_status = status;
 	printf("%s: exit(%d)\n",thread_current()->name, thread_current()->exit_status);
+	for(int i=0; i<63; i++){
+		thread_current()->fdt[i] = NULL;
+	}
 	thread_exit();
 }
 
@@ -189,7 +192,7 @@ sys_fork(const char* thread_name,struct intr_frame *f ){
 
 	// pid_t child = thread_create(thread_name, thread_current()->priority, thread_function_wrapper, &args);
 	
-	int pid = process_fork(thread_name,f);
+	int pid = process_fork(thread_name,f); 
 	struct thread * child = get_child_process(pid);
 	sema_down(&child->fork_sema); 
 	
@@ -202,22 +205,37 @@ sys_exec(const char *cmd_line){
 	if(!pml4_get_page(thread_current()->pml4,cmd_line)) { // 일단 아님..
 		sys_exit(-1);
 	}
-	if(cmd_line[0] == '\0') sys_exit(-1);
+
+	if(cmd_line[0] == '\0') sys_exit(-1); 
 	char *fn_copy;
     int dst_len = strlen(cmd_line)+1;
     fn_copy = palloc_get_page (PAL_ZERO);
-    if (fn_copy == NULL)
-        sys_exit(-1);
+
+    if (fn_copy == NULL) {
+		palloc_free_page(fn_copy);
+		return -1;
+	}
+	
     memcpy(fn_copy, cmd_line, dst_len);
-	// if(thread_current()->parent->waiting_child == thread_current()->tid){
-	// 	sema_up(&thread_current()->wait_sema);
-	// 	list_remove(&thread_current()->c_elem);
-	// }
-    if (process_exec (fn_copy) < 0)
-        sys_exit(-1);
-	return 0;
-	//return process_exec(cmd_line);
+
+	// file_close(fn_copy);
+	if (process_exec (fn_copy) < 0)
+		sys_exit(-1);
+	//return -1;
 }
+// int
+// sys_exec (const char *cmd_line) {
+// 	char *fn_copy;
+// 	int dst_len = strlen(cmd_line)+1;
+// 	fn_copy = palloc_get_page (PAL_ZERO);
+// 	if (fn_copy == NULL)
+// 		sys_exit(-1);
+
+// 	memcpy(fn_copy, cmd_line, dst_len);
+
+// 	if (process_exec (fn_copy) < 0)
+// 		sys_exit(-1);
+// }
 
 int
 sys_wait(pid_t pid){
@@ -260,6 +278,7 @@ sys_remove(const char* file){
 
 int
 sys_open(const char *file){
+	if(!is_user_vaddr(file)) return -1;
 	if(!pml4_get_page(thread_current()->pml4,file)) {
 		sys_exit(-1);
 	}
