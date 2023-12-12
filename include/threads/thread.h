@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -120,9 +121,24 @@ struct thread {
 	int nice;
 	int recent_cpu;
 
+	int exit_status;
+	char p_name[256];
+
+	struct list child_list;
+	struct list_elem c_elem; // child elem..
+	struct file *fdt[64];
+	int waiting_child;
+	struct thread* parent;
+	struct semaphore fork_sema;
+	struct semaphore wait_sema;
+	struct intr_frame parent_if;
+	int child_exit_status;
+	int is_exit;
+	
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -171,6 +187,7 @@ void do_iret (struct intr_frame *tf);
 
 struct list ready_list;
 struct list sleep_list; 
+struct list wait_list;
 void thread_test_preemption (void);
 struct thread *idle_thread;
 int READY_THREADS;

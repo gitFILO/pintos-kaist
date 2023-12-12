@@ -5,7 +5,7 @@
 #include "threads/pte.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
-#include "threads/mmu.h"
+// #include "threads/mmu.h"
 #include "intrinsic.h"
 
 static uint64_t *

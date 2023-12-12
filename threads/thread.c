@@ -121,6 +121,7 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init (&sleep_list);
 	list_init (&destruction_req);
+	list_init (&wait_list);
 	READY_THREADS = 0;
 	LOAD_AVG = 0;
 
@@ -130,7 +131,8 @@ thread_init (void) {
 	initial_thread->status = THREAD_RUNNING;
 	/* initialize the sleep queue date structure */
 	initial_thread->wakeup_tick = 0; // ? 
-
+	
+	initial_thread->exit_status = 0;
 	initial_thread->tid = allocate_tid ();
 }
 
@@ -200,7 +202,6 @@ thread_create (const char *name, int priority,
 	tid_t tid;
 
 	ASSERT (function != NULL);
-
 	/* Allocate thread. */
 	t = palloc_get_page (PAL_ZERO);
 	if (t == NULL)
@@ -209,6 +210,13 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
+	
+	if (t->name != 'idle'){
+		struct thread* cur = thread_current();
+		t->parent = cur;
+		list_push_back(&cur->child_list,&t->c_elem); //부모의 자식리스트에 현재 스레드를 저장
+		//printf("create..parent: %d, child:%d, list_head : %d\n\n",cur->tid, t->tid,list_entry(list_front(&cur->child_list),struct thread,c_elem)->tid);
+	}
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -221,7 +229,13 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
-
+	// printf("%d\n\n",aux);
+	// if(aux) t->parent = (struct thread *)aux; // 부모를 저장
+	// struct thread *parent = t->parent;
+	// printf("parnet name: %s\n\n",t->parent->name);
+	// printf("my tid: %d\n\n",tid);
+	// if(t->parent) list_push_back(&t->parent->child_list,&t->c_elem); //부모의 자식리스트에 현재 스레드를 저장
+  
 	/* Add to run queue. */
 	thread_unblock (t); // sorted by priority
 	// if newly created thread priority is bigger than current thread, yield.
@@ -491,6 +505,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->magic = THREAD_MAGIC;
 	t->nice = 0;
 	t->recent_cpu = 0;
+	t->waiting_child = 0;   
+	memset(t->p_name,0,sizeof(t->p_name));
+	list_init(&t->child_list);
+	sema_init(&t->wait_sema, 0);
+	sema_init(&t->fork_sema, 0);
+	t->waiting_child = 0;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
