@@ -85,16 +85,12 @@ exec_children (const char *child_name, pid_t pids[], size_t child_cnt)
     {
       char cmd_line[128];
       snprintf (cmd_line, sizeof cmd_line, "%s %zu", child_name, i);
-      printf("cmd_line: %s\n",cmd_line);
       if ((pids[i] = fork (child_name))){
-        printf("%d번째 fork\n",i);
         CHECK (pids[i] != PID_ERROR,
              "exec child %zu of %zu: \"%s\"", i + 1, child_cnt, cmd_line);
       } else {
-        printf("%d번째 자식 in\n",i);
         exec (cmd_line);
       }
-      printf("%d번째 종료\n",i);
     }
 }
 
@@ -105,12 +101,10 @@ wait_children (pid_t pids[], size_t child_cnt)
   
   for (i = 0; i < child_cnt; i++) 
     {
-      printf("Pid = %d 자식을 기다리는 중..\n",pids[i]);
       int status = wait (pids[i]);
       CHECK (status == (int) i,
              "wait for child %zu of %zu returned %d (expected %zu)",
              i + 1, child_cnt, status, i);
-      printf("Pid = %d 자식 기다리기 종료..\n",pids[i]);
     }
 }
 

@@ -104,7 +104,8 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 		// memcpy(newpage, parent_page, PGSIZE);
 		return true; 
 	}	
-	va = pg_round_down(va);
+	va = pg_round_down(va); // va에 해당하는 페이지의 시작 주소로 슈웃 
+	
 	//if(!is_user_vaddr(va)) return true;
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
@@ -177,7 +178,7 @@ __do_fork (void *aux) {
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
-	for( int i = 3; i <= 63; i ++){ 
+	for( int i = MIN_FD; i <= MAX_FD; i ++){ 
 		if(parent->fdt[i] != NULL){
 			struct file *dup_file = file_duplicate(parent->fdt[i]);
 			current->fdt[i] = dup_file;
@@ -327,43 +328,51 @@ get_child_process2(tid_t pid){
 	return NULL; // not exist!
 }
 
+// struct thread*
+// get_killed_child(int child_tid){
+// 	struct thread * curr = thread_current();
+// 	struct list_elem *e;
+// 	struct thread * child;
+	
+// 	//printf("get_child_process: list head : %d\n\n",list_entry(list_front(&curr->child_list),struct thread,c_elem)->tid);
+	
+// 	for (e = list_begin (&curr->killed_list); e != list_end (&curr->killed_list); e = list_next (e)){
+// 		child = list_entry(e,struct thread,k_elem);
+// 		if(child->tid == child_tid){ 
+// 			return child;
+// 		}
+// 	}
+// 	return NULL; // not exist!
+// }
+
 int
 process_wait (tid_t child_tid UNUSED) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
 	
-	// int cnt = 999933310;
-	
-	// while(cnt){
-	// 	cnt--;
-	// }
-	//return 0;
-	// printf("%p\n\n",thread_current()->tf.rip);
 	struct thread * cur = thread_current();
 	// printf("get before\n\n");
 	cur->waiting_child = child_tid;
 	struct thread * target = get_child_process2(child_tid);
-	if(!target) return -1;
-	sema_down(&target->wait_sema);
-	//else return -1;
-	
-	// struct list_elem *e;
-	// struct thread *thrd;
-	// printf("find pid : %d\n",child_tid);
-	// for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e)){
-	// 	thrd = list_entry(e,struct thread,elem);
-	// 	if(thrd->tid == child_tid) { 
-	// 		printf("child_tid : %d, sema down,,,\n\n",child_tid);
-	// 		sema_down(&thrd->sema);
-	// 	}
+	if(!target) {
+		//printf("no target!\n");
+		return -1;
+	}
+	// kill_list -> 이미 wait이 호출되었으면서 아직 exit안한 애들 -> 호출이 또되면 -1
+
+	// if (get_killed_child(child_tid)){
+	// 	return -1;
 	// }
+	//list_push_back(&cur->killed_list,&target->k_elem);
+
+	sema_down(&target->wait_sema);
+	
 	int exit_s = target->exit_status;
 	
 	list_remove(&target->c_elem);
+	// list_remove(&target->k_elem);
+	target->parent = NULL;
 
-	//sema_down(&target->sema);
-	//list_push_back(&wait_list, &cur->elem); // 스케줄링 불능상태
+	// sema_up(&target->exit_sema);
+	
 	return exit_s; 
 	//return thread_current()->exit_status;// child의 exit_status를 리턴하도록 하기 
 }
@@ -380,11 +389,19 @@ process_exit (void) {
 		// list_push_back(&ready_list,&thread_current()->parent->elem);
 		// thread_yield();
 		// curr->parent->exit_status = curr->exit_status;
-	curr->parent->child_exit_status = curr->exit_status;
-	for (int i = 2; i < 63; i++)
+	// curr->parent->child_exit_status = curr->exit_status;
+
+	for (int i = MIN_FD; i <= MAX_FD; i++)
     	sys_close(i);
+
 	if(curr->loaded_file) file_close(curr->loaded_file);
 
+	struct exit_info *my_info;
+    my_info = (struct exit_info *)malloc(sizeof(struct exit_info));
+    my_info->pid = curr->tid;
+	my_info->exit_status = curr->exit_status;
+	list_push_back(&curr->parent->exit_child_list,&my_info->p_elem);
+	
 	
 	//list_remove(&curr->c_elem);
 	// for (int i = 2; i < 63; i++)
@@ -393,9 +410,14 @@ process_exit (void) {
 	// 	printf("loaded file released! pid == %d\n ",curr->tid);
 	// 	file_close(curr->loaded_file);
 	// }
-	process_cleanup ();
-
+	
 	sema_up(&curr->wait_sema);
+	// sema_down(&curr->exit_sema);
+	while(!list_empty(&curr->exit_child_list)){
+		//printf("cur: %d , freed pid : %d \n",curr->tid,list_entry(list_back(&curr->exit_child_list),struct exit_info,p_elem)->pid);
+		free(list_entry(list_pop_back(&curr->exit_child_list),struct exit_info,p_elem));
+	}
+	process_cleanup ();
 
 }
 

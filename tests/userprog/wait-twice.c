@@ -11,8 +11,8 @@ test_main (void)
 {
   pid_t child;
   if ((child = fork ("child-simple"))){
-    msg ("wait(exec()) = %d", wait (child));
-    msg ("wait(exec()) = %d", wait (child));
+    msg ("wait(exec()) = %d", wait (child)); 
+    msg ("wait(exec()) = %d", wait (child)); // 여기서 -1
   } else {
     exec ("child-simple");
   }

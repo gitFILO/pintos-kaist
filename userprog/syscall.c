@@ -187,7 +187,7 @@ remove_child_process(pid_t pid){ // 자식 스레드의 메모리도 해제 해�
 // }
 pid_t
 sys_fork(const char* thread_name,struct intr_frame *f ){
-	
+
 	// struct thread_args args;
 	// args.pml4 = thread_current()->pml4;
 	// args.pte_func = *duplicate_pte;
@@ -222,7 +222,7 @@ sys_exec(const char *cmd_line){
 	}
 	
     memcpy(fn_copy, cmd_line, dst_len);
-
+	
 	// file_close(fn_copy);
 	if (process_exec (fn_copy) < 0)
 		sys_exit(-1);
@@ -243,10 +243,30 @@ sys_exec(const char *cmd_line){
 // }
 
 int
+get_exit_child_process(pid_t pid){
+	struct thread * curr = thread_current();
+	struct list_elem *e;
+	struct exit_info * cur_info;
+	for (e = list_begin (&curr->exit_child_list); e != list_end (&curr->exit_child_list); e = list_next (e)){
+		cur_info = list_entry(e,struct exit_info,p_elem);
+		if(cur_info->pid == pid){
+			int i = cur_info->exit_status;
+			return i;
+		}
+	}
+	return -1; // not exist!
+}
+
+int
 sys_wait(pid_t pid){ 
 	// 자식 끝날때까지 기다리는 함수
-	if(thread_current()->waiting_child == pid) return -1;
-	
+	if(thread_current()->waiting_child == pid) return -1; // for test
+
+	int exit_pid;
+	if(exit_pid = get_exit_child_process(pid) != -1) {
+		thread_current()->waiting_child = pid;
+		return get_exit_child_process(pid);
+	}
 	thread_current()->waiting_child = pid;
 	return process_wait(pid);
 }
@@ -294,18 +314,25 @@ sys_open(const char *file){
 	// 	file_deny_write(file);
 
 	// sys_exit(0); open_empty, open_missing 에서 출력 어떻게 맞출 지,..??
+
+	lock_acquire(&sysfile_lock);
 	for(int i=3 ; i<= 63;i++){
 		if (thread_current()->fdt[i] == NULL){
 			struct file *fd = filesys_open(file);
-			if ( !fd ) return -1;
+			if ( !fd ) {
+				lock_release(&sysfile_lock);
+				return -1;
+			}
 			else{
 				// printf("\nopen : fd = %d\n",i);
 				thread_current()->fdt[i] = fd;
+				lock_release(&sysfile_lock);
 				return i;
 			}
 		}
 	}
 
+	lock_release(&sysfile_lock);
 	return -1; // 실패	
 }
 
@@ -320,18 +347,27 @@ sys_read(int fd, void *buffer, unsigned size){
 	if(!pml4_get_page(thread_current()->pml4,buffer)) { 
 		sys_exit(-1);
 	}
-
+	
+	lock_acquire(&sysfile_lock);
 	int file_size;	
 	if( fd == 0){
 		file_size = input_getc();
+		lock_release(&sysfile_lock);
 		return file_size;
 	}
 	
-	if( fd < 0 || fd > 63) return -1;
+	if( fd < 0 || fd > 63){
+
+		lock_release(&sysfile_lock);
+		return -1;
+	}
 	// lock 잡아주기
-	if( thread_current()->fdt[fd] == NULL) return -1;
+	if( thread_current()->fdt[fd] == NULL){
+		
+		lock_release(&sysfile_lock);	
+		return -1;
+	}
 	// printf("\nread : fd = %d\n",fd);
-	lock_acquire(&sysfile_lock);
 	file_size = file_read(thread_current()->fdt[fd],buffer,size);
 	lock_release(&sysfile_lock);
 
@@ -344,21 +380,26 @@ sys_write(int fd, const void* buffer, unsigned size){
 	if(!pml4_get_page(thread_current()->pml4,buffer)) { 
 		sys_exit(-1);
 	}
+	lock_acquire(&sysfile_lock);
 	if(fd == 1){ // stdout
 		// use putbuf.. 로 바꿔야함
 		//printf("%s",buffer); 
 		putbuf(buffer,size); //오류가 있쌈;;;;;;
+		lock_release(&sysfile_lock);
 		return size;//putbuf(&buffer,sizeof(buffer));
 	}
-	
-	if ( fd> 63 || fd < 0 ) sys_exit(-1);
-
-	if ( thread_current()->fdt[fd] == NULL) return 0; // 아직 해당 fd가 존재하지 않는 경우 -> return 0
+	if ( fd> 63 || fd < 0 ) {
+		lock_release(&sysfile_lock);
+		sys_exit(-1);
+	}
+	if ( thread_current()->fdt[fd] == NULL) {
+		lock_release(&sysfile_lock);
+		return 0; // 아직 해당 fd가 존재하지 않는 경우 -> return 0
+	}
 	// printf("\nwrite : fd = %d\n",fd);
-		lock_acquire(&sysfile_lock);
-        int write_result = file_write(thread_current()->fdt[fd], buffer, size);
-        lock_release(&sysfile_lock);
-        return write_result;
+	int write_result = file_write(thread_current()->fdt[fd], buffer, size);
+	lock_release(&sysfile_lock);
+	return write_result;
 }
 
 void

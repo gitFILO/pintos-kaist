@@ -51,6 +51,9 @@ typedef int tid_t;
 #define div_x_by_y(x,y) (((int64_t) (x)) * (FC) / (y)) // 고정소수점 수 x를 y로 나눈 값
 #define div_x_by_n(x,n) ((x) / (n)) // 고정소수점 수 x를 정수 n으로 나눈 값
 
+
+#define MIN_FD 3
+#define MAX_FD 63
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -138,11 +141,14 @@ struct thread {
 	struct file *loaded_file;
 	struct semaphore fork_sema;
 	struct semaphore wait_sema;
+	struct semaphore exit_sema;
 	struct intr_frame parent_if;
 	int child_exit_status;
 	int is_exit;
 	struct list exit_child_list;
-
+	//struct list killed_list;
+	//struct list_elem k_elem;
+	
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
