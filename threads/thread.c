@@ -116,7 +116,7 @@ thread_init (void) {
 	};
 	lgdt (&gdt_ds);
 
-	/* Init the globla thread context */
+	/* Init the global thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&sleep_list);
@@ -134,6 +134,7 @@ thread_init (void) {
 	
 	initial_thread->exit_status = 0;
 	initial_thread->tid = allocate_tid ();
+
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -511,6 +512,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init(&t->wait_sema, 0);
 	sema_init(&t->fork_sema, 0);
 	t->waiting_child = 0;
+	list_init(&t->exit_child_list);
+	
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

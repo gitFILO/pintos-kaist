@@ -58,6 +58,8 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+
+	lock_init(&sysfile_lock);
 }
 
 /* The main system call interface */
@@ -137,10 +139,11 @@ sys_halt(void){
 void
 sys_exit(int status){
 	thread_current()->exit_status = status;
+
 	printf("%s: exit(%d)\n",thread_current()->name, thread_current()->exit_status);
-	for(int i=0; i<63; i++){
-		thread_current()->fdt[i] = NULL;
-	}
+	// for(int i=0; i<63; i++){
+	// 	thread_current()->fdt[i] = NULL;
+	// }
 	thread_exit();
 }
 
@@ -195,7 +198,9 @@ sys_fork(const char* thread_name,struct intr_frame *f ){
 	int pid = process_fork(thread_name,f); 
 	struct thread * child = get_child_process(pid);
 	sema_down(&child->fork_sema); 
-	
+	if (child->exit_status == -1) {
+		return -1;
+	}
 	return pid;
 	// return 0;
 }
@@ -238,10 +243,10 @@ sys_exec(const char *cmd_line){
 // }
 
 int
-sys_wait(pid_t pid){
+sys_wait(pid_t pid){ 
 	// 자식 끝날때까지 기다리는 함수
 	if(thread_current()->waiting_child == pid) return -1;
-
+	
 	thread_current()->waiting_child = pid;
 	return process_wait(pid);
 }
@@ -285,6 +290,9 @@ sys_open(const char *file){
 	if(file[0] == '\0')return -1; // empty에서 출력 형식 맞추기 
 	if(file == NULL) sys_exit(-1);
 	//if(file[0] == '\0')
+	// if (!strcmp(thread_name(), file))
+	// 	file_deny_write(file);
+
 	// sys_exit(0); open_empty, open_missing 에서 출력 어떻게 맞출 지,..??
 	for(int i=3 ; i<= 63;i++){
 		if (thread_current()->fdt[i] == NULL){
@@ -323,7 +331,11 @@ sys_read(int fd, void *buffer, unsigned size){
 	// lock 잡아주기
 	if( thread_current()->fdt[fd] == NULL) return -1;
 	// printf("\nread : fd = %d\n",fd);
-	return file_read(thread_current()->fdt[fd],buffer,size);
+	lock_acquire(&sysfile_lock);
+	file_size = file_read(thread_current()->fdt[fd],buffer,size);
+	lock_release(&sysfile_lock);
+
+	return file_size;
 }
 int
 sys_write(int fd, const void* buffer, unsigned size){
@@ -343,18 +355,21 @@ sys_write(int fd, const void* buffer, unsigned size){
 
 	if ( thread_current()->fdt[fd] == NULL) return 0; // 아직 해당 fd가 존재하지 않는 경우 -> return 0
 	// printf("\nwrite : fd = %d\n",fd);
-	return file_write(thread_current()->fdt[fd],buffer,size);
+		lock_acquire(&sysfile_lock);
+        int write_result = file_write(thread_current()->fdt[fd], buffer, size);
+        lock_release(&sysfile_lock);
+        return write_result;
 }
 
 void
 sys_seek(int fd, unsigned position){ // 예외처리 아직 안함
-	file_seek(fd,position);
+	file_seek(thread_current()->fdt[fd],position);
 	return;
 }
 
 unsigned
 sys_tell(int fd){
-	return file_tell(fd);
+	return file_tell(thread_current()->fdt[fd]);
 }
 
 void
