@@ -150,7 +150,8 @@ __do_fork (void *aux) {
 	memcpy (&if_,parent_if, sizeof (struct intr_frame)); // tf 
 	// memcpy(&current->tf,parent_if,sizeof(struct intr_frame));
 	// current->tf = if_; //쨘
-	
+
+
 	// current->tf.R.rax = 0;
 	
 	// current->parent = parent; // 부모를 저장
@@ -187,6 +188,7 @@ __do_fork (void *aux) {
 
 	// 모든 fdt를 전부 복사해야 할듯?
 	process_init ();
+	
 
 	sema_up(&current->fork_sema);
 	/* Finally, switch to the newly created process. */
@@ -316,11 +318,10 @@ get_child_process2(tid_t pid){
 	struct thread * curr = thread_current();
 	struct list_elem *e;
 	struct thread * child;
-	
 	//printf("get_child_process: list head : %d\n\n",list_entry(list_front(&curr->child_list),struct thread,c_elem)->tid);
-	
 	for (e = list_begin (&curr->child_list); e != list_end (&curr->child_list); e = list_next (e)){
-		child = list_entry(e,struct thread,c_elem);
+		child = list_entry(e,struct thread,c_elem); 
+
 		if(child->tid == pid){ 
 			return child;
 		}
@@ -367,7 +368,7 @@ process_wait (tid_t child_tid UNUSED) {
 	
 	int exit_s = target->exit_status;
 	
-	list_remove(&target->c_elem);
+	////list_remove(&target->c_elem);
 	// list_remove(&target->k_elem);
 	target->parent = NULL;
 
@@ -395,14 +396,15 @@ process_exit (void) {
     	sys_close(i);
 
 	if(curr->loaded_file) file_close(curr->loaded_file);
-
+	lock_acquire(&syswait_lock);
 	struct exit_info *my_info;
     my_info = (struct exit_info *)malloc(sizeof(struct exit_info));
     my_info->pid = curr->tid;
 	my_info->exit_status = curr->exit_status;
 	list_push_back(&curr->parent->exit_child_list,&my_info->p_elem);
+	lock_release(&syswait_lock);
 	
-	
+	list_remove(&curr->c_elem);
 	//list_remove(&curr->c_elem);
 	// for (int i = 2; i < 63; i++)
 	// 	sys_close(i);
@@ -412,11 +414,12 @@ process_exit (void) {
 	// }
 	
 	sema_up(&curr->wait_sema);
-	// sema_down(&curr->exit_sema);
 	while(!list_empty(&curr->exit_child_list)){
 		//printf("cur: %d , freed pid : %d \n",curr->tid,list_entry(list_back(&curr->exit_child_list),struct exit_info,p_elem)->pid);
 		free(list_entry(list_pop_back(&curr->exit_child_list),struct exit_info,p_elem));
 	}
+
+	// sema_down(&curr->exit_sema);
 	process_cleanup ();
 
 }

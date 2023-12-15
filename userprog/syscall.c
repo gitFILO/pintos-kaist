@@ -60,6 +60,7 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 
 	lock_init(&sysfile_lock);
+	lock_init(&syswait_lock);
 }
 
 /* The main system call interface */
@@ -196,13 +197,17 @@ sys_fork(const char* thread_name,struct intr_frame *f ){
 	// pid_t child = thread_create(thread_name, thread_current()->priority, thread_function_wrapper, &args);
 	
 	int pid = process_fork(thread_name,f); 
-	struct thread * child = get_child_process(pid);
-	sema_down(&child->fork_sema); 
+	
+	if (pid == TID_ERROR) return -1;
+
+	struct thread * child = get_child_process(pid); 
+	
+	sema_down(&child->fork_sema);
+	
 	if (child->exit_status == -1) {
 		return -1;
-	}
+	} 
 	return pid;
-	// return 0;
 }
 
 int
@@ -263,11 +268,15 @@ sys_wait(pid_t pid){
 	if(thread_current()->waiting_child == pid) return -1; // for test
 
 	int exit_pid;
+	lock_acquire(&syswait_lock);
 	if(exit_pid = get_exit_child_process(pid) != -1) {
 		thread_current()->waiting_child = pid;
+		lock_release(&syswait_lock);
 		return get_exit_child_process(pid);
 	}
 	thread_current()->waiting_child = pid;
+	lock_release(&syswait_lock);
+
 	return process_wait(pid);
 }
 
@@ -309,14 +318,9 @@ sys_open(const char *file){
 	}
 	if(file[0] == '\0')return -1; // empty에서 출력 형식 맞추기 
 	if(file == NULL) sys_exit(-1);
-	//if(file[0] == '\0')
-	// if (!strcmp(thread_name(), file))
-	// 	file_deny_write(file);
-
-	// sys_exit(0); open_empty, open_missing 에서 출력 어떻게 맞출 지,..??
-
+	
 	lock_acquire(&sysfile_lock);
-	for(int i=3 ; i<= 63;i++){
+	for(int i=MIN_FD; i<= MAX_FD;i++){
 		if (thread_current()->fdt[i] == NULL){
 			struct file *fd = filesys_open(file);
 			if ( !fd ) {
@@ -355,7 +359,7 @@ sys_read(int fd, void *buffer, unsigned size){
 		lock_release(&sysfile_lock);
 		return file_size;
 	}
-	
+	  
 	if( fd < 0 || fd > 63){
 
 		lock_release(&sysfile_lock);
